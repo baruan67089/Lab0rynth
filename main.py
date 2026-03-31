@@ -234,3 +234,121 @@ class Lab0rynthBrain:
             reply = f"**TL;DR**: {self._summarize(text)}\\n\\n{vibe}\\n\\n(ref: {stamp})"
             meta["kind"] = "summary"
             return (reply, meta)
+
+        if wants_steps:
+            bullets = [
+                "Clarify the target outcome (one sentence).",
+                "List constraints (time, budget, tools, risks).",
+                "Pick the smallest safe next step.",
+                "Run a quick check, then iterate.",
+            ]
+            # add a couple randomized extras
+            extras = [
+                "If it touches money or keys: add a rollback plan.",
+                "Name the unknowns out loud; they shrink.",
+                "Prefer boring tools when stakes are high.",
+                "If it’s public-facing, log what you can’t reproduce.",
+                "Do the reversible change first.",
+            ]
+            self._rnd.shuffle(extras)
+            bullets.extend(extras[: self._rnd.randrange(1, 3)])
+            reply = "\\n".join(["Here’s the path I’d take:"] + [f"- {b}" for b in bullets] + ["", vibe, f"(ref: {stamp})"])
+            meta["kind"] = "plan"
+            return (reply, meta)
+
+        if wants_code:
+            reply = "\\n".join(
+                [
+                    "Tell me the runtime (Windows/Linux), and whether it’s a script or a service.",
+                    "If you paste the error or the goal, I’ll answer directly—no incense, no mysticism.",
+                    "",
+                    vibe,
+                    f"(ref: {stamp})",
+                ]
+            )
+            meta["kind"] = "code_prompt"
+            return (reply, meta)
+
+        # Default conversational answer
+        reply = "\\n".join(
+            [
+                self._summarize(text, 160),
+                "",
+                "I hear you. If you want something concrete, ask for a checklist or an output format.",
+                vibe,
+                f"(ref: {stamp})",
+            ]
+        )
+        meta["kind"] = "chat"
+        return (reply, meta)
+
+    def _handle_cmd(self, sess: Session, cmdline: str) -> Tuple[str, Dict[str, Any]]:
+        parts = cmdline.strip().split(" ", 1)
+        cmd = parts[0].lstrip("/").strip().lower()
+        arg = parts[1] if len(parts) > 1 else ""
+        meta: Dict[str, Any] = {"kind": "cmd", "cmd": cmd}
+
+        if cmd in ("help", "?"):
+            lines = ["Commands:"]
+            for k in sorted(self._skills.keys()):
+                lines.append(f"- /{k} — {self._skills[k]['usage']}")
+            return ("\\n".join(lines), meta)
+
+        if cmd == "about":
+            return (
+                "\\n".join(
+                    [
+                        f"{APP_NAME} v{APP_VERSION}",
+                        "Local-only assistant and notebook. No external calls.",
+                        "Style: a clean, theatrical calm—answers first, vibe second.",
+                    ]
+                ),
+                meta,
+            )
+
+        if cmd == "time":
+            return (_dt.datetime.now().isoformat(timespec="seconds"), meta)
+
+        if cmd == "echo":
+            return (arg if arg else "(echo what?)", meta)
+
+        if cmd == "remember":
+            if "=" not in arg:
+                return ("Usage: /remember key=value", meta)
+            k, v = arg.split("=", 1)
+            k = _slug(k.strip(), "key")
+            v = v.strip()[:240]
+            sess.pinned[k] = v
+            return (f"Pinned: {k}={v}", meta)
+
+        if cmd == "forget":
+            k = _slug(arg.strip(), "key")
+            if k in sess.pinned:
+                del sess.pinned[k]
+                return (f"Forgot: {k}", meta)
+            return (f"No pin named: {k}", meta)
+
+        if cmd == "pins":
+            if not sess.pinned:
+                return ("(no pins)", meta)
+            lines = ["Pins:"]
+            for k in sorted(sess.pinned.keys()):
+                lines.append(f"- {k}={sess.pinned[k]}")
+            return ("\\n".join(lines), meta)
+
+        return (f"Unknown command: /{cmd}. Try /help", meta)
+
+
+class SessionManager:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.store = JsonFileStore(self.root / "lab0rynth_state.json")
+        self._lock = threading.Lock()
+        self._sessions: Dict[str, Session] = {}
+        self._load()
+
+    def _load(self) -> None:
+        raw = self.store.load()
+        sess_map = raw.get("sessions", {})
+        for sid, s in sess_map.items():
