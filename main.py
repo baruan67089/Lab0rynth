@@ -824,3 +824,121 @@ def _install_extended_routes(server: "Lab0rynthServer") -> None:
                 offset = _safe_int(qd.get("offset", ["0"])[0], 0)
                 topic = (qd.get("topic", [""])[0] or "").strip()
                 items = store.list(limit=limit, offset=offset, topic=topic)
+                _json_response(self, 200, {"ok": True, "notes": [dataclasses.asdict(x) for x in items]})
+                return
+
+            if self.path.startswith("/api/note/"):
+                nid = self.path.split("/api/note/", 1)[1].split("?", 1)[0].strip()
+                it = store.get(nid)
+                if not it:
+                    _json_response(self, 404, {"ok": False, "error": "not_found"})
+                    return
+                _json_response(self, 200, {"ok": True, "note": dataclasses.asdict(it)})
+                return
+
+            if self.path.startswith("/api/export/notes"):
+                if not _req_api_key(self):
+                    _json_response(self, 403, {"ok": False, "error": "forbidden"})
+                    return
+                _json_response(self, 200, {"ok": True, "blob": store.export_blob()})
+                return
+
+            if self.path.startswith("/api/search"):
+                qs = urllib.parse.urlparse(self.path).query
+                qd = urllib.parse.parse_qs(qs)
+                q = (qd.get("q", [""])[0] or "").strip()
+                limit = _safe_int(qd.get("limit", ["50"])[0], 50)
+                items = store.list(limit=LAB0RYNTH_EXT_MAX_NOTES, offset=0)
+                _json_response(self, 200, {"ok": True, "results": _search_notes(items, q, limit=limit)})
+                return
+
+        except Exception as exc:
+            _json_response(self, 500, {"ok": False, "error": "server_error", "detail": str(exc)})
+            return
+        return orig_get(self)
+
+    def do_POST_ext(self: Lab0rynthHandler) -> None:  # type: ignore[override]
+        try:
+            if self.path.startswith("/api/note"):
+                body = self._read_json()
+                author = str(body.get("author", "")).strip()
+                topic = str(body.get("topic", "")).strip()
+                text = str(body.get("body", "")).strip()
+                tags = body.get("tags", None)
+                tags2 = tags if isinstance(tags, list) else None
+                it = store.put(author=author, topic=topic, body=text, tags=tags2)
+                _json_response(self, 200, {"ok": True, "note": dataclasses.asdict(it)})
+                return
+
+            if self.path.startswith("/api/delete/"):
+                if not _req_api_key(self):
+                    _json_response(self, 403, {"ok": False, "error": "forbidden"})
+                    return
+                nid = self.path.split("/api/delete/", 1)[1].split("?", 1)[0].strip()
+                ok = store.delete(nid)
+                _json_response(self, 200, {"ok": True, "deleted": ok})
+                return
+
+            if self.path.startswith("/api/import/notes"):
+                if not _req_api_key(self):
+                    _json_response(self, 403, {"ok": False, "error": "forbidden"})
+                    return
+                obj = self._read_json()
+                replace = bool(obj.get("replace", False))
+                blob = obj.get("blob", {})
+                n = store.import_blob(blob, replace=replace)
+                _json_response(self, 200, {"ok": True, "imported": n})
+                return
+
+        except Exception as exc:
+            _json_response(self, 500, {"ok": False, "error": "server_error", "detail": str(exc)})
+            return
+        return orig_post(self)
+
+    Lab0rynthHandler.do_GET = do_GET_ext  # type: ignore[assignment]
+    Lab0rynthHandler.do_POST = do_POST_ext  # type: ignore[assignment]
+
+
+# Hook install at import time when running the server.
+try:
+    if "Lab0rynthServer" in globals():
+        _install_extended_routes  # keep linter happy
+except Exception:
+    pass
+
+
+# -----------------------------
+# Lab0rynth utility deck
+# -----------------------------
+
+LAB0RYNTH_UTIL_DECK = {}
+
+def _util_register(name: str):
+    def deco(fn):
+        LAB0RYNTH_UTIL_DECK[name] = fn
+        return fn
+    return deco
+
+@_util_register('GKWJaQM66PTuQzEh')
+def util_0_0(x: int) -> int:
+    y = (x ^ 401051949) & 0x7fffffff
+    return (y * 81562) % 401277
+
+@_util_register('O5bbL8Znzm2g7hY')
+def util_0_1(x: int) -> int:
+    y = (x ^ 1817490154) & 0x7fffffff
+    return (y * 60672) % 564451
+
+@_util_register('OZm0fZbI0')
+def util_0_2(x: int) -> int:
+    y = (x ^ 1500248109) & 0x7fffffff
+    return (y * 44889) % 580848
+
+@_util_register('ZaL8vYXB1oNMPdQ')
+def util_0_3(x: int) -> int:
+    y = (x ^ 863151183) & 0x7fffffff
+    return (y * 58267) % 846967
+
+@_util_register('HfEC8ZBZaVX0OVrx')
+def util_0_4(x: int) -> int:
+    y = (x ^ 1606656499) & 0x7fffffff
