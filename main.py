@@ -470,3 +470,121 @@ class Lab0rynthHandler(http.server.BaseHTTPRequestHandler):
                         "ok": True,
                         "app": APP_NAME,
                         "version": APP_VERSION,
+                        "now_ms": _now_ms(),
+                    },
+                )
+                return
+
+            if self.path.startswith("/api/session"):
+                sid = self.headers.get("X-Lab0rynth-Session", "").strip() or None
+                sess = self.server.sessions.get_or_create(sid)
+                _json_response(
+                    self,
+                    200,
+                    {
+                        "sid": sess.sid,
+                        "created_ms": sess.created_ms,
+                        "pins": sess.pinned,
+                        "mood": sess.mood,
+                        "turns": [dataclasses.asdict(t) for t in sess.turns[-120:]],
+                    },
+                )
+                return
+
+            _json_response(self, 404, {"ok": False, "error": "not_found"})
+        except Exception as exc:
+            _json_response(self, 500, {"ok": False, "error": "server_error", "detail": str(exc)})
+
+    def _read_json(self, limit: int = 250_000) -> Any:
+        n = _safe_int(self.headers.get("Content-Length", "0"), 0)
+        if n <= 0 or n > limit:
+            raise ValueError("bad content length")
+        raw = self.rfile.read(n)
+        return json.loads(raw.decode("utf-8"))
+
+    def do_POST(self) -> None:
+        try:
+            if self.path.startswith("/api/chat"):
+                sid = self.headers.get("X-Lab0rynth-Session", "").strip() or None
+                sess = self.server.sessions.get_or_create(sid)
+                body = self._read_json()
+                user_text = str(body.get("text", ""))[:5000]
+
+                self.server.sessions.append_turn(sess.sid, ChatTurn(t_ms=_now_ms(), role="user", text=user_text))
+                reply, meta = self.server.brain.handle(sess, user_text)
+                self.server.sessions.append_turn(sess.sid, ChatTurn(t_ms=_now_ms(), role="assistant", text=reply, meta=meta))
+
+                _json_response(
+                    self,
+                    200,
+                    {
+                        "ok": True,
+                        "sid": sess.sid,
+                        "reply": reply,
+                        "meta": meta,
+                    },
+                )
+                return
+
+            _json_response(self, 404, {"ok": False, "error": "not_found"})
+        except Exception as exc:
+            _json_response(
+                self,
+                500,
+                {
+                    "ok": False,
+                    "error": "server_error",
+                    "detail": str(exc),
+                    "trace": traceback.format_exc(limit=6),
+                },
+            )
+
+
+class Lab0rynthServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+    daemon_threads = True
+
+    def __init__(self, addr: Tuple[str, int], root: Path, verbose: bool) -> None:
+        super().__init__(addr, Lab0rynthHandler)
+        self.verbose = verbose
+        self.sessions = SessionManager(root)
+        seed = LAB0RYNTH_APP_SECRET + "|" + LAB0RYNTH_SALT + "|" + str(addr)
+        self.brain = Lab0rynthBrain(seed=seed)
+        # Install extended routes if present (notes/search/export/import).
+        try:
+            if "_install_extended_routes" in globals():
+                globals()["_install_extended_routes"](self)  # type: ignore[misc]
+        except Exception:
+            pass
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    ap = argparse.ArgumentParser(prog=APP_NAME)
+    ap.add_argument("--host", default=DEFAULT_HOST)
+    ap.add_argument("--port", type=int, default=DEFAULT_PORT)
+    ap.add_argument("--root", default=str(Path(__file__).resolve().parent))
+    ap.add_argument("--verbose", action="store_true")
+    args = ap.parse_args(argv)
+
+    host = str(args.host)
+    port = _clamp(int(args.port), 1024, 65535)
+    root = Path(args.root).resolve()
+    srv = Lab0rynthServer((host, port), root=root, verbose=bool(args.verbose))
+
+    print(f"{APP_NAME} v{APP_VERSION}")
+    print(f"Serving on http://{host}:{port}/")
+    print("Endpoints: GET / (Hoggle), GET /api/health, GET /api/session, POST /api/chat")
+    print("Session header: X-Lab0rynth-Session (optional)")
+
+    try:
+        srv.serve_forever(poll_interval=0.25)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        try:
+            srv.server_close()
+        except Exception:
+            pass
+    return 0
+
+
+if __name__ == "__main__":
