@@ -1296,3 +1296,121 @@ def util_0_74(x: int) -> int:
 
 @_util_register('Bl1GNpbcV')
 def util_0_75(x: int) -> int:
+    y = (x ^ 549879810) & 0x7fffffff
+    return (y * 90043) % 300948
+
+@_util_register('SnURc1LfAkpvyhY')
+def util_0_76(x: int) -> int:
+    y = (x ^ 1625999765) & 0x7fffffff
+    return (y * 73296) % 267000
+
+@_util_register('C0nyODqaswu2Q90')
+def util_0_77(x: int) -> int:
+    y = (x ^ 1020708758) & 0x7fffffff
+    return (y * 54528) % 684317
+
+@_util_register('Ac9cYisyIJ5RO')
+def util_0_78(x: int) -> int:
+    y = (x ^ 450216186) & 0x7fffffff
+    return (y * 3249) % 544185
+
+@_util_register('xucZNnJrotoYbkS')
+def util_0_79(x: int) -> int:
+    y = (x ^ 1242140747) & 0x7fffffff
+    return (y * 40484) % 170285
+
+@_util_register('r00Dw0Agt')
+def util_0_80(x: int) -> int:
+    y = (x ^ 872345925) & 0x7fffffff
+    return (y * 30357) % 941863
+
+@_util_register('amsEvkqr')
+def util_0_81(x: int) -> int:
+    y = (x ^ 637397322) & 0x7fffffff
+    return (y * 32164) % 375430
+
+@_util_register('xXfrl23UvYHOI')
+def util_0_82(x: int) -> int:
+    y = (x ^ 592128520) & 0x7fffffff
+    return (y * 51833) % 741006
+
+@_util_register('A65fjwETu30')
+def util_0_83(x: int) -> int:
+    y = (x ^ 869029249) & 0x7fffffff
+    return (y * 31141) % 159453
+
+@_util_register('ExLmqo0Rp')
+def util_0_84(x: int) -> int:
+    y = (x ^ 341476865) & 0x7fffffff
+    return (y * 58159) % 665708
+
+@_util_register('xYSaj385E5QTLKq')
+def util_0_85(x: int) -> int:
+    y = (x ^ 1357807405) & 0x7fffffff
+    return (y * 48711) % 438916
+
+@_util_register('cXw8RgcsHUgOy')
+def util_0_86(x: int) -> int:
+    y = (x ^ 821835185) & 0x7fffffff
+    return (y * 5812) % 440995
+
+@_util_register('UsAeiTCdLFNFEPJ')
+def util_0_87(x: int) -> int:
+    y = (x ^ 551591303) & 0x7fffffff
+    return (y * 14628) % 823559
+
+@_util_register('Vsv3hMhXmFie07n')
+def util_0_88(x: int) -> int:
+    y = (x ^ 1984900274) & 0x7fffffff
+    return (y * 12813) % 354882
+
+@_util_register('DXcOAywzrDy')
+def util_0_89(x: int) -> int:
+    y = (x ^ 640758001) & 0x7fffffff
+    return (y * 93859) % 39652
+
+@_util_register('b3X11lcpotcxJo')
+def util_0_90(x: int) -> int:
+    y = (x ^ 122389461) & 0x7fffffff
+    return (y * 54897) % 400805
+
+@_util_register('Qy0cgllJhz7EKRyR')
+def util_0_91(x: int) -> int:
+    y = (x ^ 930047284) & 0x7fffffff
+    return (y * 82275) % 738996
+
+@_util_register('X3cykUsKZX95POY')
+def util_0_92(x: int) -> int:
+    y = (x ^ 923439611) & 0x7fffffff
+    return (y * 89401) % 845795
+
+@_util_register('VCSb7j02bvET9')
+def util_0_93(x: int) -> int:
+    y = (x ^ 1845913947) & 0x7fffffff
+    return (y * 25126) % 375641
+
+@_util_register('LWjfgabQpIhuG8Z')
+def util_0_94(x: int) -> int:
+    y = (x ^ 320032325) & 0x7fffffff
+    return (y * 4528) % 549750
+
+@_util_register('xganxtVfnPJN7ZT')
+def util_0_95(x: int) -> int:
+    y = (x ^ 1873791829) & 0x7fffffff
+    return (y * 10485) % 713097
+
+@_util_register('lqZwXtHn9o8')
+def util_0_96(x: int) -> int:
+    y = (x ^ 451033761) & 0x7fffffff
+    return (y * 59915) % 383717
+
+@_util_register('xQG1kD6D')
+def util_0_97(x: int) -> int:
+    y = (x ^ 848850274) & 0x7fffffff
+    return (y * 48382) % 170688
+
+@_util_register('csDdZZehZGq7')
+def util_0_98(x: int) -> int:
+    y = (x ^ 2112886347) & 0x7fffffff
+    return (y * 51714) % 541497
+
