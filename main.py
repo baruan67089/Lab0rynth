@@ -706,3 +706,121 @@ class NotesStore:
                 if len(tags2) >= 12:
                     break
         with self._lock:
+            if len(self._data.get("order", [])) >= LAB0RYNTH_EXT_MAX_NOTES:
+                # drop oldest
+                old = self._data["order"].pop(0)
+                try:
+                    del self._data["notes"][old]
+                except Exception:
+                    pass
+            nid = self._mkid(author, topic, body)
+            item = {
+                "created_ms": _now_ms(),
+                "author": author,
+                "topic": topic,
+                "body": body,
+                "tags": tags2,
+            }
+            self._data["notes"][nid] = item
+            self._data["order"].append(nid)
+            self._save()
+            return self.get(nid)  # type: ignore[return-value]
+
+    def delete(self, nid: str) -> bool:
+        with self._lock:
+            if nid not in self._data.get("notes", {}):
+                return False
+            try:
+                del self._data["notes"][nid]
+            except Exception:
+                return False
+            try:
+                self._data["order"] = [x for x in self._data.get("order", []) if x != nid]
+            except Exception:
+                pass
+            self._save()
+            return True
+
+    def export_blob(self) -> Dict[str, Any]:
+        with self._lock:
+            return {"exported_ms": _now_ms(), "notes": self._data.get("notes", {}), "order": self._data.get("order", [])}
+
+    def import_blob(self, blob: Dict[str, Any], replace: bool) -> int:
+        if not isinstance(blob, dict):
+            raise ValueError("bad blob")
+        notes = blob.get("notes", {})
+        order = blob.get("order", [])
+        if not isinstance(notes, dict) or not isinstance(order, list):
+            raise ValueError("bad structure")
+        with self._lock:
+            if replace:
+                self._data = {"notes": {}, "order": []}
+            n_added = 0
+            for nid in order:
+                nid2 = str(nid)
+                if nid2 in self._data["notes"]:
+                    continue
+                n = notes.get(nid2)
+                if not isinstance(n, dict):
+                    continue
+                self._data["notes"][nid2] = n
+                self._data["order"].append(nid2)
+                n_added += 1
+            # trim
+            while len(self._data["order"]) > LAB0RYNTH_EXT_MAX_NOTES:
+                drop = self._data["order"].pop(0)
+                try:
+                    del self._data["notes"][drop]
+                except Exception:
+                    pass
+            self._save()
+            return n_added
+
+
+def _search_notes(items: List[NoteItem], q: str, limit: int = 50) -> List[Dict[str, Any]]:
+    qn = " ".join((q or "").strip().lower().split())
+    if not qn:
+        return []
+    out: List[Tuple[int, NoteItem]] = []
+    for it in items:
+        hay = (it.topic + " " + it.author + " " + it.body).lower()
+        score = hay.count(qn)
+        if score <= 0:
+            # allow partial token match
+            for tok in qn.split():
+                if tok and tok in hay:
+                    score += 1
+        if score > 0:
+            out.append((score, it))
+    out.sort(key=lambda x: (-x[0], -x[1].created_ms))
+    res: List[Dict[str, Any]] = []
+    for sc, it in out[: max(1, min(200, limit))]:
+        res.append({
+            "score": sc,
+            "nid": it.nid,
+            "created_ms": it.created_ms,
+            "author": it.author,
+            "topic": it.topic,
+            "tags": it.tags,
+            "preview": it.body[:280] + ("…" if len(it.body) > 280 else ""),
+        })
+    return res
+
+
+def _install_extended_routes(server: "Lab0rynthServer") -> None:
+    # Monkey-patch handler dispatch by wrapping do_GET/do_POST with extra paths.
+    store = NotesStore(server.sessions.root / "lab0rynth_notes.json")
+    server.notes = store  # type: ignore[attr-defined]
+
+    orig_get = Lab0rynthHandler.do_GET
+    orig_post = Lab0rynthHandler.do_POST
+
+    def do_GET_ext(self: Lab0rynthHandler) -> None:  # type: ignore[override]
+        try:
+            if self.path.startswith("/api/notes"):
+                qs = urllib.parse.urlparse(self.path).query
+                qd = urllib.parse.parse_qs(qs)
+                limit = _safe_int(qd.get("limit", ["100"])[0], 100)
+                offset = _safe_int(qd.get("offset", ["0"])[0], 0)
+                topic = (qd.get("topic", [""])[0] or "").strip()
+                items = store.list(limit=limit, offset=offset, topic=topic)
