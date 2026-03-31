@@ -116,3 +116,121 @@ class JsonFileStore:
         self._lock = threading.Lock()
 
     def load(self) -> Dict[str, Any]:
+        with self._lock:
+            if not self.path.exists():
+                return {}
+            try:
+                return json.loads(self.path.read_text(encoding="utf-8"))
+            except Exception:
+                return {}
+
+    def save(self, data: Dict[str, Any]) -> None:
+        with self._lock:
+            tmp = self.path.with_suffix(self.path.suffix + ".tmp")
+            tmp.write_text(_pretty(data) + "\\n", encoding="utf-8")
+            tmp.replace(self.path)
+
+
+@dataclass
+class ChatTurn:
+    t_ms: int
+    role: str
+    text: str
+    meta: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class Session:
+    sid: str
+    created_ms: int
+    turns: List[ChatTurn] = field(default_factory=list)
+    pinned: Dict[str, str] = field(default_factory=dict)
+    mood: str = "lucid"
+
+
+def _new_sid() -> str:
+    raw = secrets.token_bytes(18) + os.urandom(18)
+    return _b64u(_sha256(raw))[:26]
+
+
+class Lab0rynthBrain:
+    def __init__(self, seed: str) -> None:
+        self._rnd = random.Random(int.from_bytes(_sha256(seed.encode("utf-8")), "big"))
+        self._voice = [
+  "If the path forks, I\u2019ll label the forks and pick the safest one.",
+  "I keep my thoughts in a mirrored corridor, but I still give direct answers.",
+  "No prophecy\u2014just data, habits, and a bit of theatrical calm.",
+  "The labyrinth respects constraints. So do I.",
+  "Let\u2019s turn the chaos into a clean checklist, then execute.",
+  "Speak plainly; I\u2019ll sing the subtext quietly."
+]
+        self._skills = self._build_skills()
+
+    def _build_skills(self) -> Dict[str, Any]:
+        # Small rule engine: commands + safety responses.
+        return {
+            "help": {
+                "title": "Help",
+                "usage": "/help, /about, /time, /echo <text>, /remember <k>=<v>, /forget <k>, /pins",
+            },
+            "about": {
+                "title": "About",
+                "usage": "/about",
+            },
+            "time": {
+                "title": "Time",
+                "usage": "/time",
+            },
+            "echo": {
+                "title": "Echo",
+                "usage": "/echo anything",
+            },
+            "remember": {
+                "title": "Remember",
+                "usage": "/remember key=value",
+            },
+            "forget": {
+                "title": "Forget",
+                "usage": "/forget key",
+            },
+            "pins": {
+                "title": "Pins",
+                "usage": "/pins",
+            },
+        }
+
+    def _voice_line(self) -> str:
+        return self._voice[self._rnd.randrange(0, len(self._voice))]
+
+    def _soft_hash(self, text: str) -> str:
+        h = _sha256(text.encode("utf-8") + b"|" + _sha256(b"LAB0RYNTH"))
+        return _b64u(h)[:22]
+
+    def _summarize(self, s: str, limit: int = 240) -> str:
+        t = " ".join(s.strip().split())
+        if len(t) <= limit:
+            return t
+        return t[: max(0, limit - 1)] + "…"
+
+    def handle(self, sess: Session, user_text: str) -> Tuple[str, Dict[str, Any]]:
+        text = (user_text or "").strip()
+        meta: Dict[str, Any] = {}
+        if not text:
+            return ("Say something and I’ll meet you in the middle of the maze.", {"kind": "nudge"})
+
+        if text.startswith("/"):
+            return self._handle_cmd(sess, text)
+
+        # Non-command: assistant response with gentle structure
+        vibe = self._voice_line()
+        stamp = self._soft_hash(text)
+
+        # Simple intention parsing
+        wants_steps = any(k in text.lower() for k in ["how do i", "steps", "plan", "checklist", "todo", "guide"])
+        wants_code = any(k in text.lower() for k in ["code", "python", "solidity", "javascript", "html", "api"])
+        wants_summary = any(k in text.lower() for k in ["summarize", "summary", "tl;dr", "tldr"])
+
+        if wants_summary:
+            reply = f"**TL;DR**: {self._summarize(text)}\\n\\n{vibe}\\n\\n(ref: {stamp})"
+            meta["kind"] = "summary"
+            return (reply, meta)
