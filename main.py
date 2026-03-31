@@ -352,3 +352,121 @@ class SessionManager:
         raw = self.store.load()
         sess_map = raw.get("sessions", {})
         for sid, s in sess_map.items():
+            try:
+                turns = [ChatTurn(**t) for t in s.get("turns", [])]
+                self._sessions[sid] = Session(
+                    sid=sid,
+                    created_ms=int(s.get("created_ms", _now_ms())),
+                    turns=turns,
+                    pinned=dict(s.get("pinned", {})),
+                    mood=str(s.get("mood", "lucid")),
+                )
+            except Exception:
+                continue
+
+    def _persist(self) -> None:
+        out = {
+            "app": APP_NAME,
+            "version": APP_VERSION,
+            "saved_ms": _now_ms(),
+            "sessions": {},
+        }
+        for sid, s in self._sessions.items():
+            out["sessions"][sid] = {
+                "created_ms": s.created_ms,
+                "mood": s.mood,
+                "pinned": s.pinned,
+                "turns": [dataclasses.asdict(t) for t in s.turns[-400:]],
+            }
+        self.store.save(out)
+
+    def get_or_create(self, sid: Optional[str]) -> Session:
+        with self._lock:
+            if sid and sid in self._sessions:
+                return self._sessions[sid]
+            nsid = _new_sid()
+            s = Session(sid=nsid, created_ms=_now_ms())
+            self._sessions[nsid] = s
+            self._persist()
+            return s
+
+    def append_turn(self, sid: str, turn: ChatTurn) -> None:
+        with self._lock:
+            s = self._sessions.get(sid)
+            if not s:
+                return
+            s.turns.append(turn)
+            if len(s.turns) > 1200:
+                s.turns = s.turns[-900:]
+            self._persist()
+
+
+def _json_response(handler: http.server.BaseHTTPRequestHandler, status: int, obj: Any) -> None:
+    raw = (_pretty(obj) + "\\n").encode("utf-8")
+    handler.send_response(status)
+    handler.send_header("Content-Type", "application/json; charset=utf-8")
+    handler.send_header("Content-Length", str(len(raw)))
+    handler.send_header("Cache-Control", "no-store")
+    handler.end_headers()
+    handler.wfile.write(raw)
+
+
+def _text_response(handler: http.server.BaseHTTPRequestHandler, status: int, text: str, content_type: str) -> None:
+    raw = text.encode("utf-8")
+    handler.send_response(status)
+    handler.send_header("Content-Type", content_type + "; charset=utf-8")
+    handler.send_header("Content-Length", str(len(raw)))
+    handler.send_header("Cache-Control", "no-store")
+    handler.end_headers()
+    handler.wfile.write(raw)
+
+
+def _load_hoggle_html() -> str:
+    # Served from the same directory as this file.
+    here = Path(__file__).resolve().parent
+    p = here / "Hoggle.html"
+    if p.exists():
+        return p.read_text(encoding="utf-8")
+    # Fallback minimal UI (generator should write the full file)
+    return "<!doctype html><title>Hoggle missing</title><h1>Hoggle.html not found</h1>"
+
+
+class Lab0rynthHandler(http.server.BaseHTTPRequestHandler):
+    server_version = "Lab0rynthHTTP/" + APP_VERSION
+
+    def _set_cors(self) -> None:
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type,X-Lab0rynth-Session")
+
+    def do_OPTIONS(self) -> None:
+        self.send_response(204)
+        self._set_cors()
+        self.end_headers()
+
+    def log_message(self, fmt: str, *args: Any) -> None:
+        # Quiet default logs; enable with --verbose
+        if getattr(self.server, "verbose", False):
+            super().log_message(fmt, *args)
+
+    def do_GET(self) -> None:
+        try:
+            if self.path == "/" or self.path.startswith("/?"):
+                html = _load_hoggle_html()
+                self.send_response(200)
+                self._set_cors()
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(html.encode("utf-8"))))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(html.encode("utf-8"))
+                return
+
+            if self.path.startswith("/api/health"):
+                _json_response(
+                    self,
+                    200,
+                    {
+                        "ok": True,
+                        "app": APP_NAME,
+                        "version": APP_VERSION,
