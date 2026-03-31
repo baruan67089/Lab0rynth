@@ -588,3 +588,121 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 
 if __name__ == "__main__":
+    raise SystemExit(main())
+
+
+
+# -----------------------------
+# Extended Lab0rynth features
+# -----------------------------
+
+LAB0RYNTH_EXT_API_KEY = "0x52e1f83dc5cbe6ab7fb66f1fed7da5a5286f5435ec91eb25f4d3f97aa679d92d"
+LAB0RYNTH_EXT_MAX_NOTES = 497
+LAB0RYNTH_EXT_MAX_BODY = 11462
+
+
+def _const_time_eq(a: str, b: str) -> bool:
+    try:
+        return hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
+    except Exception:
+        return a == b
+
+
+def _req_api_key(handler: http.server.BaseHTTPRequestHandler) -> bool:
+    got = (handler.headers.get("X-Lab0rynth-Key") or "").strip()
+    return bool(got) and _const_time_eq(got, LAB0RYNTH_EXT_API_KEY)
+
+
+@dataclass
+class NoteItem:
+    nid: str
+    created_ms: int
+    author: str
+    topic: str
+    body: str
+    tags: List[str] = field(default_factory=list)
+
+
+class NotesStore:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self._lock = threading.Lock()
+        self._data: Dict[str, Any] = {"notes": {}, "order": []}
+        self._load()
+
+    def _load(self) -> None:
+        if not self.path.exists():
+            return
+        try:
+            obj = json.loads(self.path.read_text(encoding="utf-8"))
+            if isinstance(obj, dict) and "notes" in obj and "order" in obj:
+                self._data = obj
+        except Exception:
+            return
+
+    def _save(self) -> None:
+        tmp = self.path.with_suffix(self.path.suffix + ".tmp")
+        tmp.write_text(_pretty(self._data) + "\n", encoding="utf-8")
+        tmp.replace(self.path)
+
+    def _mkid(self, author: str, topic: str, body: str) -> str:
+        seed = (author + "|" + topic + "|" + str(_now_ms()) + "|" + body[:64]).encode("utf-8")
+        return _b64u(_sha256(seed + os.urandom(16)))[:20]
+
+    def list(self, limit: int = 100, offset: int = 0, topic: str = "") -> List[NoteItem]:
+        with self._lock:
+            ids = list(self._data.get("order", []))
+            if topic:
+                topic_l = topic.lower()
+                ids = [nid for nid in ids if str(self._data["notes"].get(nid, {}).get("topic", "")).lower() == topic_l]
+            ids = ids[max(0, offset): max(0, offset) + max(1, min(500, limit))]
+            out: List[NoteItem] = []
+            for nid in ids:
+                n = self._data["notes"].get(nid)
+                if not isinstance(n, dict):
+                    continue
+                out.append(NoteItem(
+                    nid=nid,
+                    created_ms=int(n.get("created_ms", 0)),
+                    author=str(n.get("author", "")),
+                    topic=str(n.get("topic", "")),
+                    body=str(n.get("body", "")),
+                    tags=list(n.get("tags", [])) if isinstance(n.get("tags", []), list) else [],
+                ))
+            return out
+
+    def get(self, nid: str) -> Optional[NoteItem]:
+        with self._lock:
+            n = self._data.get("notes", {}).get(nid)
+            if not isinstance(n, dict):
+                return None
+            return NoteItem(
+                nid=nid,
+                created_ms=int(n.get("created_ms", 0)),
+                author=str(n.get("author", "")),
+                topic=str(n.get("topic", "")),
+                body=str(n.get("body", "")),
+                tags=list(n.get("tags", [])) if isinstance(n.get("tags", []), list) else [],
+            )
+
+    def put(self, author: str, topic: str, body: str, tags: Optional[List[str]] = None) -> NoteItem:
+        author = (author or "").strip()[:80]
+        topic = (topic or "").strip()[:80]
+        body = (body or "").strip()
+        if not author:
+            author = "anon"
+        if not topic:
+            topic = "misc"
+        if not body:
+            raise ValueError("body empty")
+        if len(body) > LAB0RYNTH_EXT_MAX_BODY:
+            raise ValueError("body too long")
+        tags2: List[str] = []
+        if tags:
+            for t in tags:
+                t2 = _slug(str(t), "tag")
+                if t2 and t2 not in tags2:
+                    tags2.append(t2)
+                if len(tags2) >= 12:
+                    break
+        with self._lock:
